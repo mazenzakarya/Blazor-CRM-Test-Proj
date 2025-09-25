@@ -1,0 +1,424 @@
+@page "/customers"
+@using Blazor_CRM_Test_Proj.Models
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Customers - CRM</PageTitle>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>Customers</h2>
+                <button class="btn btn-primary" @onclick="ShowAddCustomerModal">
+                    <i class="bi bi-plus-circle"></i> Add Customer
+                </button>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <input type="text" class="form-control" placeholder="Search customers..." @bind="searchTerm" @onkeyup="OnSearchChanged" />
+                        <button class="btn btn-outline-secondary" type="button" @onclick="SearchCustomers">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="activeOnly" @bind="showActiveOnly" @bind:after="FilterCustomers" />
+                        <label class="form-check-label" for="activeOnly">
+                            Show Active Only
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Customers Table -->
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Company</th>
+                            <th>Last Contact</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (customers != null && customers.Any())
+                        {
+                            @foreach (var customer in customers)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@customer.FirstName @customer.LastName</strong>
+                                    </td>
+                                    <td>
+                                        <a href="mailto:@customer.Email" class="text-decoration-none">@customer.Email</a>
+                                    </td>
+                                    <td>@customer.Phone</td>
+                                    <td>@customer.Company</td>
+                                    <td>
+                                        @if (customer.LastContactDate.HasValue)
+                                        {
+                                            @customer.LastContactDate.Value.ToString("MMM dd, yyyy")
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Never</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (customer.IsActive)
+                                        {
+                                            <span class="badge bg-success">Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Inactive</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewCustomer(customer.Id)" title="View Details">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditCustomer(customer)" title="Edit">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteCustomer(customer.Id)" title="Delete">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="7" class="text-center text-muted">
+                                    @if (isLoading)
+                                    {
+                                        <div class="spinner-border spinner-border-sm" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <span>Loading customers...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>No customers found.</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Customer Modal -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(isEditing ? "Edit Customer" : "Add Customer")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="currentCustomer" OnValidSubmit="SaveCustomer" OnInvalidSubmit="OnInvalidSubmit">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="text-danger" />
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="firstName" class="form-label">First Name *</label>
+                                <InputText id="firstName" class="form-control" @bind-Value="currentCustomer.FirstName" />
+                                <ValidationMessage For="@(() => currentCustomer.FirstName)" class="text-danger" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="lastName" class="form-label">Last Name *</label>
+                                <InputText id="lastName" class="form-control" @bind-Value="currentCustomer.LastName" />
+                                <ValidationMessage For="@(() => currentCustomer.LastName)" class="text-danger" />
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="email" class="form-label">Email *</label>
+                                <InputText id="email" class="form-control" @bind-Value="currentCustomer.Email" />
+                                <ValidationMessage For="@(() => currentCustomer.Email)" class="text-danger" />
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="phone" class="form-label">Phone</label>
+                                <InputText id="phone" class="form-control" @bind-Value="currentCustomer.Phone" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="company" class="form-label">Company</label>
+                            <InputText id="company" class="form-control" @bind-Value="currentCustomer.Company" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="address" class="form-label">Address</label>
+                            <InputTextArea id="address" class="form-control" rows="3" @bind-Value="currentCustomer.Address" />
+                        </div>
+
+                        @if (isEditing)
+                        {
+                            <div class="form-check mb-3">
+                                <InputCheckbox id="isActive" class="form-check-input" @bind-Value="currentCustomer.IsActive" />
+                                <label class="form-check-label" for="isActive">
+                                    Active Customer
+                                </label>
+                            </div>
+                        }
+
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                            <button type="button" class="btn btn-warning me-2" @onclick="TestSave" disabled="@isSaving">
+                                Test Save
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                                @if (isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                @(isEditing ? "Update" : "Create") Customer
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Customer>? customers;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isEditing = false;
+    private bool isSaving = false;
+    private bool showActiveOnly = true;
+    private string searchTerm = string.Empty;
+    private Customer currentCustomer = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomers();
+    }
+
+    private async Task LoadCustomers()
+    {
+        isLoading = true;
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("ApiClient");
+            var endpoint = showActiveOnly ? "api/customers/active" : "api/customers";
+            customers = await httpClient.GetFromJsonAsync<List<Customer>>(endpoint);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading customers: {ex.Message}");
+            customers = new List<Customer>();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SearchCustomers()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            await LoadCustomers();
+            return;
+        }
+
+        isLoading = true;
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("ApiClient");
+            customers = await httpClient.GetFromJsonAsync<List<Customer>>($"api/customers/search?term={Uri.EscapeDataString(searchTerm)}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error searching customers: {ex.Message}");
+            customers = new List<Customer>();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnSearchChanged(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchCustomers();
+        }
+    }
+
+    private async Task FilterCustomers()
+    {
+        await LoadCustomers();
+    }
+
+    private void ShowAddCustomerModal()
+    {
+        currentCustomer = new Customer();
+        isEditing = false;
+        showModal = true;
+    }
+
+    private void EditCustomer(Customer customer)
+    {
+        currentCustomer = new Customer
+        {
+            Id = customer.Id,
+            FirstName = customer.FirstName,
+            LastName = customer.LastName,
+            Email = customer.Email,
+            Phone = customer.Phone,
+            Company = customer.Company,
+            Address = customer.Address,
+            IsActive = customer.IsActive
+        };
+        isEditing = true;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        currentCustomer = new Customer();
+        isEditing = false;
+        isSaving = false;
+    }
+
+    private async Task SaveCustomer()
+    {
+        Console.WriteLine("SaveCustomer method called!");
+        Console.WriteLine($"Customer data: {currentCustomer.FirstName} {currentCustomer.LastName} {currentCustomer.Email}");
+        
+        isSaving = true;
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("ApiClient");
+            if (isEditing)
+            {
+                Console.WriteLine($"Updating customer with ID: {currentCustomer.Id}");
+                var response = await httpClient.PutAsJsonAsync($"api/customers/{currentCustomer.Id}", currentCustomer);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Error updating customer: {error}");
+                    await JS.InvokeAsync<string>("alert", $"Error updating customer: {error}");
+                    return;
+                }
+                Console.WriteLine("Customer updated successfully!");
+            }
+                else
+                {
+                    Console.WriteLine("Creating new customer...");
+                    var response = await httpClient.PostAsJsonAsync("api/customers", currentCustomer);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        currentCustomer = await response.Content.ReadFromJsonAsync<Customer>() ?? new Customer();
+                        Console.WriteLine($"Customer created successfully with ID: {currentCustomer.Id}");
+                        await JS.InvokeAsync<string>("alert", "Customer created successfully!");
+                    }
+                    else
+                    {
+                        var error = await response.Content.ReadAsStringAsync();
+                        Console.WriteLine($"Error creating customer: {error}");
+                        
+                        // Handle specific HTTP status codes
+                        if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                        {
+                            await JS.InvokeAsync<string>("alert", "Error: A customer with this email address already exists. Please use a different email.");
+                        }
+                        else if (error.Contains("duplicate key") || error.Contains("IX_Customers_Email"))
+                        {
+                            await JS.InvokeAsync<string>("alert", "Error: A customer with this email address already exists. Please use a different email.");
+                        }
+                        else
+                        {
+                            await JS.InvokeAsync<string>("alert", $"Error creating customer: {error}");
+                        }
+                        return;
+                    }
+                }
+
+            CloseModal();
+            await LoadCustomers();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving customer: {ex.Message}");
+            await JS.InvokeAsync<string>("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteCustomer(int customerId)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this customer?"))
+        {
+            try
+            {
+                var httpClient = HttpClientFactory.CreateClient("ApiClient");
+                var response = await httpClient.DeleteAsync($"api/customers/{customerId}");
+                if (response.IsSuccessStatusCode)
+                {
+                    await LoadCustomers();
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Error deleting customer: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error deleting customer: {ex.Message}");
+            }
+        }
+    }
+
+    private void ViewCustomer(int customerId)
+    {
+        Navigation.NavigateTo($"/customers/{customerId}");
+    }
+
+    private void OnInvalidSubmit()
+    {
+        Console.WriteLine("Form validation failed!");
+        JS.InvokeAsync<string>("alert", "Please fill in all required fields correctly.");
+    }
+
+    private async Task TestSave()
+    {
+        Console.WriteLine("Test Save clicked!");
+        Console.WriteLine($"Customer data: {currentCustomer.FirstName} {currentCustomer.LastName} {currentCustomer.Email}");
+        await SaveCustomer();
+    }
+}

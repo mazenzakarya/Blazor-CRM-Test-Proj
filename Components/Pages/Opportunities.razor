@@ -1,0 +1,363 @@
+@page "/opportunities"
+@page "/opportunities/customer/{CustomerId:int}"
+@page "/opportunities/add/{CustomerId:int}"
+@using Blazor_CRM_Test_Proj.Models
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Customer Opportunities - CRM</PageTitle>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>Customer Opportunities</h2>
+                <div>
+                    <button class="btn btn-primary" @onclick="ShowAddOpportunityModal">
+                        <i class="bi bi-plus-circle"></i> Add Opportunity
+                    </button>
+                    <a href="/customers/@CustomerId" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Customer
+                    </a>
+                </div>
+            </div>
+
+            <!-- Opportunities Table -->
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Title</th>
+                            <th>Status</th>
+                            <th>Value</th>
+                            <th>Expected Close</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (opportunities != null && opportunities.Any())
+                        {
+                            @foreach (var opportunity in opportunities)
+                            {
+                                <tr>
+                                    <td>@opportunity.Title</td>
+                                    <td>
+                                        <span class="badge bg-@(GetStatusBadgeColor(opportunity.Status))">@opportunity.Status</span>
+                                    </td>
+                                    <td>@opportunity.EstimatedValue.ToString("C")</td>
+                                    <td>
+                                        @if (opportunity.ExpectedCloseDate.HasValue)
+                                        {
+                                            @opportunity.ExpectedCloseDate.Value.ToString("MMM dd, yyyy")
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>@(opportunity.Description?.Length > 50 ? opportunity.Description.Substring(0, 50) + "..." : opportunity.Description ?? "-")</td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewOpportunity(opportunity.Id)" title="View Details">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditOpportunity(opportunity)" title="Edit">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteOpportunity(opportunity.Id)" title="Delete">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">
+                                    @if (isLoading)
+                                    {
+                                        <div class="spinner-border spinner-border-sm" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <span>Loading opportunities...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>No opportunities found for this customer.</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Opportunity Modal -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(isEditing ? "Edit Opportunity" : "Add Opportunity")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="currentOpportunity" OnValidSubmit="SaveOpportunity" OnInvalidSubmit="OnInvalidSubmit">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="text-danger" />
+
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Title *</label>
+                            <InputText id="title" class="form-control" @bind-Value="currentOpportunity.Title" />
+                            <ValidationMessage For="@(() => currentOpportunity.Title)" class="text-danger" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <InputTextArea id="description" class="form-control" rows="3" @bind-Value="currentOpportunity.Description" />
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="status" class="form-label">Status *</label>
+                                    <InputSelect id="status" class="form-control" @bind-Value="currentOpportunity.Status">
+                                        <option value="">Select Status</option>
+                                        <option value="New">New</option>
+                                        <option value="Qualified">Qualified</option>
+                                        <option value="Proposal">Proposal</option>
+                                        <option value="Negotiation">Negotiation</option>
+                                        <option value="Closed Won">Closed Won</option>
+                                        <option value="Closed Lost">Closed Lost</option>
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => currentOpportunity.Status)" class="text-danger" />
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="estimatedValue" class="form-label">Estimated Value *</label>
+                                    <InputNumber id="estimatedValue" class="form-control" @bind-Value="currentOpportunity.EstimatedValue" />
+                                    <ValidationMessage For="@(() => currentOpportunity.EstimatedValue)" class="text-danger" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="expectedCloseDate" class="form-label">Expected Close Date</label>
+                                    <InputDate id="expectedCloseDate" class="form-control" @bind-Value="currentOpportunity.ExpectedCloseDate" />
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="actualValue" class="form-label">Actual Value</label>
+                                    <InputNumber id="actualValue" class="form-control" @bind-Value="currentOpportunity.ActualValue" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="notes" class="form-label">Notes</label>
+                            <InputTextArea id="notes" class="form-control" rows="2" @bind-Value="currentOpportunity.Notes" />
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                            <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                                @if (isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                @(isEditing ? "Update" : "Create") Opportunity
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int CustomerId { get; set; }
+
+    private List<Opportunity>? opportunities;
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isEditing = false;
+    private bool isSaving = false;
+    private Opportunity currentOpportunity = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadOpportunities();
+    }
+
+    private async Task LoadOpportunities()
+    {
+        isLoading = true;
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("ApiClient");
+            opportunities = await httpClient.GetFromJsonAsync<List<Opportunity>>($"api/opportunities/customer/{CustomerId}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading opportunities: {ex.Message}");
+            opportunities = new List<Opportunity>();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ShowAddOpportunityModal()
+    {
+        currentOpportunity = new Opportunity { CustomerId = CustomerId };
+        isEditing = false;
+        showModal = true;
+    }
+
+    private void EditOpportunity(Opportunity opportunity)
+    {
+        currentOpportunity = new Opportunity
+        {
+            Id = opportunity.Id,
+            Title = opportunity.Title,
+            Description = opportunity.Description,
+            Status = opportunity.Status,
+            EstimatedValue = opportunity.EstimatedValue,
+            ActualValue = opportunity.ActualValue,
+            ExpectedCloseDate = opportunity.ExpectedCloseDate,
+            Notes = opportunity.Notes,
+            CustomerId = opportunity.CustomerId
+        };
+        isEditing = true;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        currentOpportunity = new Opportunity();
+        isEditing = false;
+        isSaving = false;
+    }
+
+    private async Task SaveOpportunity()
+    {
+        Console.WriteLine("SaveOpportunity method called!");
+        Console.WriteLine($"Opportunity data: {currentOpportunity.Title} - {currentOpportunity.Status} - CustomerId: {currentOpportunity.CustomerId}");
+        
+        isSaving = true;
+        try
+        {
+            var httpClient = HttpClientFactory.CreateClient("ApiClient");
+            if (isEditing)
+            {
+                Console.WriteLine($"Updating opportunity with ID: {currentOpportunity.Id}");
+                var response = await httpClient.PutAsJsonAsync($"api/opportunities/{currentOpportunity.Id}", currentOpportunity);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Error updating opportunity: {error}");
+                    await JS.InvokeAsync<string>("alert", $"Error updating opportunity: {error}");
+                    return;
+                }
+                Console.WriteLine("Opportunity updated successfully!");
+            }
+            else
+            {
+                Console.WriteLine("Creating new opportunity...");
+                var response = await httpClient.PostAsJsonAsync("api/opportunities", currentOpportunity);
+                if (response.IsSuccessStatusCode)
+                {
+                    currentOpportunity = await response.Content.ReadFromJsonAsync<Opportunity>() ?? new Opportunity();
+                    Console.WriteLine($"Opportunity created successfully with ID: {currentOpportunity.Id}");
+                    await JS.InvokeAsync<string>("alert", "Opportunity created successfully!");
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"Error creating opportunity: {error}");
+                    await JS.InvokeAsync<string>("alert", $"Error creating opportunity: {error}");
+                    return;
+                }
+            }
+
+            CloseModal();
+            await LoadOpportunities();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving opportunity: {ex.Message}");
+            await JS.InvokeAsync<string>("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteOpportunity(int opportunityId)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this opportunity?"))
+        {
+            try
+            {
+                var httpClient = HttpClientFactory.CreateClient("ApiClient");
+                var response = await httpClient.DeleteAsync($"api/opportunities/{opportunityId}");
+                if (response.IsSuccessStatusCode)
+                {
+                    await LoadOpportunities();
+                }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    await JS.InvokeAsync<string>("alert", $"Error deleting opportunity: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                await JS.InvokeAsync<string>("alert", $"Error: {ex.Message}");
+            }
+        }
+    }
+
+    private void ViewOpportunity(int opportunityId)
+    {
+        // For now, just show an alert. You can create a detailed view later
+        JS.InvokeAsync<string>("alert", $"Opportunity ID: {opportunityId}");
+    }
+
+    private string GetStatusBadgeColor(string status)
+    {
+        return status switch
+        {
+            "New" => "primary",
+            "Qualified" => "info",
+            "Proposal" => "warning",
+            "Negotiation" => "secondary",
+            "Closed Won" => "success",
+            "Closed Lost" => "danger",
+            _ => "secondary"
+        };
+    }
+
+    private void OnInvalidSubmit()
+    {
+        Console.WriteLine("Opportunity form validation failed!");
+        JS.InvokeAsync<string>("alert", "Please fill in all required fields correctly.");
+    }
+}
